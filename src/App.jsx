@@ -483,7 +483,8 @@ function WeeklyTab({ daily, assigned }) {
 
 // ---------------- Projects tab ----------------
 const PROJECT_STATUS = {
-  active: { label: "В роботі", color: T.accent },
+  active: { label: "В роботі", color: T.amber },
+  live: { label: "Активно", color: T.accent },
   done: { label: "Завершено", color: T.blue },
   archived: { label: "Архів", color: T.sub },
 };
@@ -494,6 +495,7 @@ function ProjectsTab({ items, reload }) {
   const [form, setForm] = useState(EMPTY_PROJECT);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(EMPTY_PROJECT);
+  const [expandedId, setExpandedId] = useState(null);
 
   async function add() {
     if (!form.name.trim()) return;
@@ -504,6 +506,7 @@ function ProjectsTab({ items, reload }) {
   }
   function startEdit(p) {
     setEditingId(p.id);
+    setExpandedId(p.id);
     setEditForm({
       name: p.name || "", description: p.description || "", repo_url: p.repo_url || "",
       live_url: p.live_url || "", tech_stack: p.tech_stack || "", status: p.status || "active",
@@ -559,6 +562,7 @@ function ProjectsTab({ items, reload }) {
         {items.map((p) => {
           const st = PROJECT_STATUS[p.status] || PROJECT_STATUS.active;
           const editing = editingId === p.id;
+          const expanded = editing || expandedId === p.id;
           return (
             <div key={p.id} style={{ ...panelStyle, padding: 16 }}>
               {editing ? (
@@ -583,41 +587,67 @@ function ProjectsTab({ items, reload }) {
                 </div>
               ) : (
                 <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <div style={{ flex: 1 }}>
+                  <div
+                    onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer" }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{p.name}</div>
-                      {p.description && <div style={{ fontSize: 13, color: T.sub, marginBottom: 8 }}>{p.description}</div>}
-                      <div style={{ display: "flex", gap: 14, fontSize: 12, flexWrap: "wrap", alignItems: "center" }}>
+                      {p.description && (
+                        <div
+                          style={{
+                            fontSize: 13, color: T.sub,
+                            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                          }}
+                        >
+                          {p.description}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <Pill color={st.color}>{st.label}</Pill>
+                      <ChevronRight
+                        size={16}
+                        color={T.sub}
+                        style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}
+                      />
+                    </div>
+                  </div>
+
+                  {expanded && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      {p.description && <div style={{ fontSize: 13, color: T.sub, marginBottom: 10, whiteSpace: "pre-wrap" }}>{p.description}</div>}
+                      <div style={{ display: "flex", gap: 14, fontSize: 12, flexWrap: "wrap", alignItems: "center", marginBottom: p.notes ? 10 : 0 }}>
                         {p.repo_url && (
-                          <a href={p.repo_url} target="_blank" rel="noreferrer" style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+                          <a href={p.repo_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
                             <Github size={12} /> Репозиторій
                           </a>
                         )}
                         {p.live_url && (
-                          <a href={p.live_url} target="_blank" rel="noreferrer" style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+                          <a href={p.live_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
                             <ExternalLink size={12} /> Сайт
                           </a>
                         )}
                         {p.tech_stack && <span style={{ color: T.sub, fontFamily: "ui-monospace, monospace" }}>{p.tech_stack}</span>}
                       </div>
-                      {p.notes && <div style={{ fontSize: 12, color: T.sub, marginTop: 8, whiteSpace: "pre-wrap" }}>{p.notes}</div>}
+                      {p.notes && <div style={{ fontSize: 12, color: T.sub, whiteSpace: "pre-wrap", marginBottom: 12 }}>{p.notes}</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }} onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={p.status}
+                          onChange={(e) => setStatus(p.id, e.target.value)}
+                          style={{ background: "transparent", border: "none", color: st.color, fontWeight: 600, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
+                        >
+                          {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k} style={{ background: T.panel, color: T.text }}>{v.label}</option>)}
+                        </select>
+                        <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <select
-                        value={p.status}
-                        onChange={(e) => setStatus(p.id, e.target.value)}
-                        style={{ background: "transparent", border: "none", color: st.color, fontWeight: 600, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
-                      >
-                        {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k} style={{ background: T.panel, color: T.text }}>{v.label}</option>)}
-                      </select>
-                      <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </>
               )}
             </div>

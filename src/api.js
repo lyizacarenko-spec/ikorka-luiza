@@ -1,7 +1,7 @@
 // Same backend as ikorka-sysadmin / task-dashboard: task-dashboard-backend
-// on Railway. All routes here are under /api/luiza/* and gated to the
-// 'owner' role server-side — no other PIN (sysadmin/manager) can reach
-// them, regardless of what the client sends.
+// on Railway. All routes here are under /api/luiza/* and gated server-side
+// to 'owner' (full read/write) or 'evgeniya' (read-only) — any other PIN
+// (sysadmin/manager) is rejected regardless of what the client sends.
 const API_BASE =
   import.meta.env.VITE_API_URL || "https://task-dashboard-backend-production.up.railway.app/api";
 
@@ -29,9 +29,9 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  // Only accepts a PIN that resolves to 'owner' — a valid sysadmin/manager
-  // PIN would authenticate fine against /api/login in general, but this
-  // panel explicitly rejects anything that isn't 'owner'.
+  // Only accepts a PIN that resolves to 'owner' or 'evgeniya' — a valid
+  // sysadmin/manager PIN would authenticate fine against /api/login in
+  // general, but this panel explicitly rejects anything else.
   login: (candidatePin) =>
     fetch(`${API_BASE}/login`, {
       method: "POST",
@@ -40,7 +40,7 @@ export const api = {
     }).then(async (res) => {
       if (!res.ok) throw new Error("invalid_pin");
       const body = await res.json();
-      if (body.role !== "owner") throw new Error("invalid_pin");
+      if (body.role !== "owner" && body.role !== "evgeniya") throw new Error("invalid_pin");
       return body;
     }),
 
@@ -76,12 +76,12 @@ export function setStoredPin(p) {
 export function clearStoredPin() {
   sessionStorage.removeItem("ikorka_luiza_pin");
 }
-export function getStoredAuthed() {
-  return sessionStorage.getItem("ikorka_luiza_authed") === "1";
+export function getStoredRole() {
+  return sessionStorage.getItem("ikorka_luiza_role") || null;
 }
-export function setStoredAuthed() {
-  sessionStorage.setItem("ikorka_luiza_authed", "1");
+export function setStoredRole(role) {
+  sessionStorage.setItem("ikorka_luiza_role", role);
 }
-export function clearStoredAuthed() {
-  sessionStorage.removeItem("ikorka_luiza_authed");
+export function clearStoredRole() {
+  sessionStorage.removeItem("ikorka_luiza_role");
 }

@@ -2,9 +2,12 @@ import React, { useState, useEffect } from "react";
 import {
   Plus, Trash2, Pencil, Clock, Play, Check, X, ListChecks, CalendarClock,
   TrendingUp, ChevronRight, ChevronLeft, CircleDot, Lock, LogOut,
-  FolderGit2, ExternalLink, Github,
+  FolderGit2, ExternalLink, Github, MonitorSmartphone,
 } from "lucide-react";
-import { api, setStoredPin, clearStoredPin, getStoredAuthed, setStoredAuthed, clearStoredAuthed } from "./api.js";
+import { api, setStoredPin, clearStoredPin, getStoredRole, setStoredRole, clearStoredRole } from "./api.js";
+
+const ROLE_LABELS = { owner: "Власниця", evgeniya: "Євгенія (перегляд)" };
+const SYSADMIN_URL = "https://lyizacarenko-spec.github.io/ikorka-sysadmin/";
 
 // ---------- design tokens (same palette as ikorka-sysadmin) ----------
 const T = {
@@ -75,9 +78,9 @@ function Pill({ color, children }) {
 }
 
 // ---------------- Login screen ----------------
-// Only a PIN that resolves to role 'owner' is accepted — api.login()
-// itself rejects anything else, so a valid sysadmin/manager PIN still
-// shows "Невірний PIN" here.
+// Only a PIN that resolves to 'owner' or 'evgeniya' is accepted —
+// api.login() itself rejects anything else, so a valid sysadmin/manager
+// PIN still shows "Невірний PIN" here.
 function LoginScreen({ onLoggedIn }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
@@ -88,10 +91,10 @@ function LoginScreen({ onLoggedIn }) {
     setBusy(true);
     setError("");
     try {
-      await api.login(value.trim());
+      const { role } = await api.login(value.trim());
       setStoredPin(value.trim());
-      setStoredAuthed();
-      onLoggedIn();
+      setStoredRole(role);
+      onLoggedIn(role);
     } catch {
       setError("Невірний PIN");
     } finally {
@@ -107,7 +110,7 @@ function LoginScreen({ onLoggedIn }) {
     }}>
       <div style={{ ...panelStyle, padding: 28, width: 280, textAlign: "center" }}>
         <Lock size={22} color={T.sub} style={{ marginBottom: 10 }} />
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Особиста панель</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Луіза АІ автоматизатор</div>
         <input
           type="password"
           inputMode="numeric"
@@ -127,15 +130,28 @@ function LoginScreen({ onLoggedIn }) {
   );
 }
 
-function TopBar({ tab, setTab, onLogout }) {
+function TopBar({ tab, setTab, onLogout, role }) {
   const tabs = [
     { id: "daily", label: "Задачі на день", icon: ListChecks },
     { id: "assigned", label: "Задачі", icon: CalendarClock },
     { id: "weekly", label: "Тижнева аналітика", icon: TrendingUp },
     { id: "projects", label: "Проєкти", icon: FolderGit2 },
   ];
+
+  // Same GitHub Pages origin as ikorka-sysadmin, so sessionStorage is
+  // shared across both apps — seed sysadmin's own keys with the PIN we
+  // already know is 'owner' there too, so she lands already logged in.
+  function goToSysadmin() {
+    const pin = sessionStorage.getItem("ikorka_luiza_pin");
+    if (pin) {
+      sessionStorage.setItem("ikorka_sysadmin_pin", pin);
+      sessionStorage.setItem("ikorka_sysadmin_role", "owner");
+    }
+    window.location.href = SYSADMIN_URL;
+  }
+
   return (
-    <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, padding: "0 20px", justifyContent: "space-between" }}>
+    <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, padding: "0 20px", justifyContent: "space-between", flexWrap: "wrap" }}>
       <div style={{ display: "flex" }}>
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -159,15 +175,25 @@ function TopBar({ tab, setTab, onLogout }) {
           );
         })}
       </div>
-      <button onClick={onLogout} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-        <LogOut size={14} /> Вийти
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        {role === "owner" && (
+          <button onClick={goToSysadmin} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+            <MonitorSmartphone size={14} /> Панель сисадміна →
+          </button>
+        )}
+        <span style={{ color: T.sub, fontSize: 12.5 }}>
+          Ви увійшли як: <span style={{ color: T.text, fontWeight: 600 }}>{ROLE_LABELS[role] || role}</span>
+        </span>
+        <button onClick={onLogout} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+          <LogOut size={14} /> Вийти
+        </button>
+      </div>
     </div>
   );
 }
 
 // ---------------- Daily tasks tab ----------------
-function DailyTab({ items, reload }) {
+function DailyTab({ items, reload, readOnly }) {
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -204,21 +230,23 @@ function DailyTab({ items, reload }) {
   const doneCount = items.filter((i) => i.done).length;
   return (
     <div style={{ padding: 20, maxWidth: 640 }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
-          placeholder="Нова задача на сьогодні..."
-          style={{ ...inputStyle, flex: 1 }}
-        />
-        <button onClick={add} style={btnStyle(T.accent)}><Plus size={14} /> Додати</button>
-      </div>
+      {!readOnly && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            placeholder="Нова задача на сьогодні..."
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button onClick={add} style={btnStyle(T.accent)}><Plus size={14} /> Додати</button>
+        </div>
+      )}
       <div style={{ color: T.sub, fontSize: 12, marginBottom: 10 }}>{doneCount} з {items.length} виконано</div>
       <div style={panelStyle}>
         {items.map((item, idx) => (
           <div key={item.id} style={{ ...rowStyle, borderTop: idx > 0 ? `1px solid ${T.border}` : "none", gap: 10 }}>
-            <input type="checkbox" checked={item.done} onChange={() => toggle(item)} />
+            <input type="checkbox" checked={item.done} disabled={readOnly} onChange={() => toggle(item)} />
             {editingId === item.id ? (
               <input
                 autoFocus
@@ -242,15 +270,20 @@ function DailyTab({ items, reload }) {
                 title="Дата виконання — можна поставити заднім числом"
                 value={item.completed_at ? String(item.completed_at).slice(0, 10) : ""}
                 onChange={(e) => changeCompletedDate(item.id, e.target.value)}
+                disabled={readOnly}
                 style={{ ...inputStyle, padding: "4px 6px", fontSize: 11.5, colorScheme: "dark" }}
               />
             )}
-            <button onClick={() => startEdit(item)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-              <Pencil size={14} />
-            </button>
-            <button onClick={() => remove(item.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-              <Trash2 size={14} />
-            </button>
+            {!readOnly && (
+              <>
+                <button onClick={() => startEdit(item)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => remove(item.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                  <Trash2 size={14} />
+                </button>
+              </>
+            )}
           </div>
         ))}
         {items.length === 0 && <div style={{ padding: 16, color: T.sub, fontSize: 13 }}>Задач на сьогодні ще немає.</div>}
@@ -269,7 +302,7 @@ function LiveElapsed({ startedAt }) {
   return <span style={{ fontFamily: "ui-monospace, monospace", color: T.amber, fontWeight: 700 }}>{h}:{m}:{s}</span>;
 }
 
-function AssignedTab({ items, reload }) {
+function AssignedTab({ items, reload, readOnly }) {
   const [title, setTitle] = useState("");
   const [fromUser, setFromUser] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -317,23 +350,25 @@ function AssignedTab({ items, reload }) {
 
   return (
     <div style={{ padding: 20, maxWidth: 760 }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTask()}
-          placeholder="Нова задача, напр. «Аналітика Бінотел за серпень»"
-          style={{ ...inputStyle, flex: 2, minWidth: 220 }}
-        />
-        <input
-          value={fromUser}
-          onChange={(e) => setFromUser(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTask()}
-          placeholder="Хто поставив (напр. Євгенія)"
-          style={{ ...inputStyle, flex: 1, minWidth: 160 }}
-        />
-        <button onClick={addTask} style={btnStyle(T.accent)}><Plus size={14} /> Поставити</button>
-      </div>
+      {!readOnly && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addTask()}
+            placeholder="Нова задача, напр. «Аналітика Бінотел за серпень»"
+            style={{ ...inputStyle, flex: 2, minWidth: 220 }}
+          />
+          <input
+            value={fromUser}
+            onChange={(e) => setFromUser(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addTask()}
+            placeholder="Хто поставив (напр. Євгенія)"
+            style={{ ...inputStyle, flex: 1, minWidth: 160 }}
+          />
+          <button onClick={addTask} style={btnStyle(T.accent)}><Plus size={14} /> Поставити</button>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {items.map((task) => {
@@ -355,9 +390,11 @@ function AssignedTab({ items, reload }) {
                   ) : (
                     <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
                       {task.title}
-                      <button onClick={() => startEdit(task)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex" }}>
-                        <Pencil size={12} />
-                      </button>
+                      {!readOnly && (
+                        <button onClick={() => startEdit(task)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex" }}>
+                          <Pencil size={12} />
+                        </button>
+                      )}
                     </div>
                   )}
                   <div style={{ display: "flex", gap: 14, fontSize: 12, color: T.sub, flexWrap: "wrap", alignItems: "center" }}>
@@ -370,6 +407,7 @@ function AssignedTab({ items, reload }) {
                           title="Можна поставити заднім числом"
                           value={String(task.started_at).slice(0, 10)}
                           onChange={(e) => changeDate(task.id, "started_at", e.target.value)}
+                          disabled={readOnly}
                           style={{ ...inputStyle, padding: "2px 4px", fontSize: 11, colorScheme: "dark" }}
                         />
                       </span>
@@ -382,6 +420,7 @@ function AssignedTab({ items, reload }) {
                           title="Можна поставити заднім числом"
                           value={String(task.finished_at).slice(0, 10)}
                           onChange={(e) => changeDate(task.id, "finished_at", e.target.value)}
+                          disabled={readOnly}
                           style={{ ...inputStyle, padding: "2px 4px", fontSize: 11, colorScheme: "dark" }}
                         />
                       </span>
@@ -392,15 +431,17 @@ function AssignedTab({ items, reload }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Pill color={meta.color}>{meta.label}</Pill>
-                  {task.status === "queued" && (
+                  {!readOnly && task.status === "queued" && (
                     <button onClick={() => start(task.id)} style={btnStyle(T.blue)}><Play size={13} /> Взяти в роботу</button>
                   )}
-                  {task.status === "active" && (
+                  {!readOnly && task.status === "active" && (
                     <button onClick={() => finish(task.id)} style={btnStyle(T.accent)}><Check size={13} /> Завершити</button>
                   )}
-                  <button onClick={() => remove(task.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-                    <Trash2 size={14} />
-                  </button>
+                  {!readOnly && (
+                    <button onClick={() => remove(task.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -490,7 +531,7 @@ const PROJECT_STATUS = {
 };
 const EMPTY_PROJECT = { name: "", description: "", repo_url: "", live_url: "", tech_stack: "", status: "active", notes: "" };
 
-function ProjectsTab({ items, reload }) {
+function ProjectsTab({ items, reload, readOnly }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY_PROJECT);
   const [editingId, setEditingId] = useState(null);
@@ -539,13 +580,15 @@ function ProjectsTab({ items, reload }) {
 
   return (
     <div style={{ padding: 20 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <button onClick={() => setShowAdd(true)} style={btnStyle(T.accent)}>
-          <Plus size={14} /> Додати проєкт
-        </button>
-      </div>
+      {!readOnly && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+          <button onClick={() => setShowAdd(true)} style={btnStyle(T.accent)}>
+            <Plus size={14} /> Додати проєкт
+          </button>
+        </div>
+      )}
 
-      {showAdd && (
+      {!readOnly && showAdd && (
         <div style={{ ...panelStyle, marginBottom: 16, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Назва проєкту" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
@@ -640,21 +683,23 @@ function ProjectsTab({ items, reload }) {
                         {p.tech_stack && <span style={{ color: T.sub, fontFamily: "ui-monospace, monospace" }}>{p.tech_stack}</span>}
                       </div>
                       {p.notes && <div style={{ fontSize: 12, color: T.sub, whiteSpace: "pre-wrap", marginBottom: 12 }}>{p.notes}</div>}
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }} onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={p.status}
-                          onChange={(e) => setStatus(p.id, e.target.value)}
-                          style={{ background: "transparent", border: "none", color: st.color, fontWeight: 600, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
-                        >
-                          {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k} style={{ background: T.panel, color: T.text }}>{v.label}</option>)}
-                        </select>
-                        <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {!readOnly && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }} onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={p.status}
+                            onChange={(e) => setStatus(p.id, e.target.value)}
+                            style={{ background: "transparent", border: "none", color: st.color, fontWeight: 600, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
+                          >
+                            {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k} style={{ background: T.panel, color: T.text }}>{v.label}</option>)}
+                          </select>
+                          <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -681,7 +726,8 @@ function btnStyle(color, ghost) {
   };
 }
 
-function Dashboard({ onLogout }) {
+function Dashboard({ onLogout, role }) {
+  const readOnly = role !== "owner";
   const [tab, setTab] = useState("daily");
   const [daily, setDaily] = useState([]);
   const [assigned, setAssigned] = useState([]);
@@ -710,13 +756,13 @@ function Dashboard({ onLogout }) {
     <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "ui-sans-serif, system-ui" }}>
       <div style={{ padding: "18px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3 }}>Особиста панель</div>
+          <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3 }}>Луіза АІ автоматизатор</div>
           <div style={{ fontSize: 12.5, color: T.sub, marginTop: 2 }}>
             {activeCount > 0 ? `${activeCount} задача в роботі` : "немає активних задач"}
           </div>
         </div>
       </div>
-      <TopBar tab={tab} setTab={setTab} onLogout={onLogout} />
+      <TopBar tab={tab} setTab={setTab} onLogout={onLogout} role={role} />
       {loading ? (
         <div style={{ padding: 40, color: T.sub, textAlign: "center" }}>Завантаження…</div>
       ) : loadError ? (
@@ -730,10 +776,10 @@ function Dashboard({ onLogout }) {
         </div>
       ) : (
         <>
-          {tab === "daily" && <DailyTab items={daily} reload={reloadAll} />}
-          {tab === "assigned" && <AssignedTab items={assigned} reload={reloadAll} />}
+          {tab === "daily" && <DailyTab items={daily} reload={reloadAll} readOnly={readOnly} />}
+          {tab === "assigned" && <AssignedTab items={assigned} reload={reloadAll} readOnly={readOnly} />}
           {tab === "weekly" && <WeeklyTab daily={daily} assigned={assigned} />}
-          {tab === "projects" && <ProjectsTab items={projects} reload={reloadAll} />}
+          {tab === "projects" && <ProjectsTab items={projects} reload={reloadAll} readOnly={readOnly} />}
         </>
       )}
     </div>
@@ -741,14 +787,14 @@ function Dashboard({ onLogout }) {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(getStoredAuthed());
+  const [role, setRole] = useState(getStoredRole());
 
   function handleLogout() {
     clearStoredPin();
-    clearStoredAuthed();
-    setAuthed(false);
+    clearStoredRole();
+    setRole(null);
   }
 
-  if (!authed) return <LoginScreen onLoggedIn={() => setAuthed(true)} />;
-  return <Dashboard onLogout={handleLogout} />;
+  if (!role) return <LoginScreen onLoggedIn={setRole} />;
+  return <Dashboard onLogout={handleLogout} role={role} />;
 }

@@ -528,6 +528,15 @@ function ProjectsTab({ items, reload }) {
     reload();
   }
 
+  // "В роботі" always on top, then everything else in the order the
+  // statuses are declared above — recomputed from `items` on every
+  // render, so a status change (which triggers reload()) re-sorts
+  // automatically without any extra state to keep in sync.
+  const STATUS_ORDER = Object.keys(PROJECT_STATUS);
+  const sortedItems = [...items].sort(
+    (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+  );
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
@@ -559,7 +568,7 @@ function ProjectsTab({ items, reload }) {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {items.map((p) => {
+        {sortedItems.map((p) => {
           const st = PROJECT_STATUS[p.status] || PROJECT_STATUS.active;
           const editing = editingId === p.id;
           const expanded = editing || expandedId === p.id;

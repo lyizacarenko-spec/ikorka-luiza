@@ -62,6 +62,12 @@ export const api = {
   editAssigned: (id, patch) =>
     request(`/luiza/assigned-tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteAssigned: (id) => request(`/luiza/assigned-tasks/${id}`, { method: "DELETE" }),
+
+  getProjects: () => request("/luiza/projects"),
+  addProject: (project) => request("/luiza/projects", { method: "POST", body: JSON.stringify(project) }),
+  updateProject: (id, patch) =>
+    request(`/luiza/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteProject: (id) => request(`/luiza/projects/${id}`, { method: "DELETE" }),
 };
 
 export function setStoredPin(p) {

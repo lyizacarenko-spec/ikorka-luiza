@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   Plus, Trash2, Pencil, Clock, Play, Check, X, ListChecks, CalendarClock,
   TrendingUp, ChevronRight, ChevronLeft, CircleDot, Lock, LogOut,
+  FolderGit2, ExternalLink, Github,
 } from "lucide-react";
 import { api, setStoredPin, clearStoredPin, getStoredAuthed, setStoredAuthed, clearStoredAuthed } from "./api.js";
 
@@ -131,6 +132,7 @@ function TopBar({ tab, setTab, onLogout }) {
     { id: "daily", label: "Задачі на день", icon: ListChecks },
     { id: "assigned", label: "Задачі", icon: CalendarClock },
     { id: "weekly", label: "Тижнева аналітика", icon: TrendingUp },
+    { id: "projects", label: "Проєкти", icon: FolderGit2 },
   ];
   return (
     <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, padding: "0 20px", justifyContent: "space-between" }}>
@@ -479,6 +481,154 @@ function WeeklyTab({ daily, assigned }) {
   );
 }
 
+// ---------------- Projects tab ----------------
+const PROJECT_STATUS = {
+  active: { label: "В роботі", color: T.accent },
+  done: { label: "Завершено", color: T.blue },
+  archived: { label: "Архів", color: T.sub },
+};
+const EMPTY_PROJECT = { name: "", description: "", repo_url: "", live_url: "", tech_stack: "", status: "active", notes: "" };
+
+function ProjectsTab({ items, reload }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(EMPTY_PROJECT);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_PROJECT);
+
+  async function add() {
+    if (!form.name.trim()) return;
+    await api.addProject({ ...form, name: form.name.trim() });
+    setForm(EMPTY_PROJECT);
+    setShowAdd(false);
+    reload();
+  }
+  function startEdit(p) {
+    setEditingId(p.id);
+    setEditForm({
+      name: p.name || "", description: p.description || "", repo_url: p.repo_url || "",
+      live_url: p.live_url || "", tech_stack: p.tech_stack || "", status: p.status || "active",
+      notes: p.notes || "",
+    });
+  }
+  async function saveEdit(id) {
+    if (!editForm.name.trim()) return;
+    await api.updateProject(id, { ...editForm, name: editForm.name.trim() });
+    setEditingId(null);
+    reload();
+  }
+  async function setStatus(id, status) {
+    await api.updateProject(id, { status });
+    reload();
+  }
+  async function remove(id) {
+    await api.deleteProject(id);
+    reload();
+  }
+
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <button onClick={() => setShowAdd(true)} style={btnStyle(T.accent)}>
+          <Plus size={14} /> Додати проєкт
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ ...panelStyle, marginBottom: 16, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Назва проєкту" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle}>
+              {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Короткий опис" style={inputStyle} />
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input value={form.repo_url} onChange={(e) => setForm({ ...form, repo_url: e.target.value })} placeholder="Посилання на репозиторій" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+            <input value={form.live_url} onChange={(e) => setForm({ ...form, live_url: e.target.value })} placeholder="Посилання на живий сайт" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+          </div>
+          <input value={form.tech_stack} onChange={(e) => setForm({ ...form, tech_stack: e.target.value })} placeholder="Технологічний стек (напр. Vite, React, Railway)" style={inputStyle} />
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Нотатки" rows={2} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={add} style={btnStyle(T.accent)}>Зберегти</button>
+            <button onClick={() => { setShowAdd(false); setForm(EMPTY_PROJECT); }} style={btnStyle(T.sub, true)}><X size={14} /></button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((p) => {
+          const st = PROJECT_STATUS[p.status] || PROJECT_STATUS.active;
+          const editing = editingId === p.id;
+          return (
+            <div key={p.id} style={{ ...panelStyle, padding: 16 }}>
+              {editing ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+                    <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} style={inputStyle}>
+                      {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+                  <input value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Короткий опис" style={inputStyle} />
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <input value={editForm.repo_url} onChange={(e) => setEditForm({ ...editForm, repo_url: e.target.value })} placeholder="Репозиторій" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+                    <input value={editForm.live_url} onChange={(e) => setEditForm({ ...editForm, live_url: e.target.value })} placeholder="Живий сайт" style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
+                  </div>
+                  <input value={editForm.tech_stack} onChange={(e) => setEditForm({ ...editForm, tech_stack: e.target.value })} placeholder="Технологічний стек" style={inputStyle} />
+                  <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => saveEdit(p.id)} style={btnStyle(T.accent)}>Зберегти</button>
+                    <button onClick={() => setEditingId(null)} style={btnStyle(T.sub, true)}><X size={14} /></button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{p.name}</div>
+                      {p.description && <div style={{ fontSize: 13, color: T.sub, marginBottom: 8 }}>{p.description}</div>}
+                      <div style={{ display: "flex", gap: 14, fontSize: 12, flexWrap: "wrap", alignItems: "center" }}>
+                        {p.repo_url && (
+                          <a href={p.repo_url} target="_blank" rel="noreferrer" style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+                            <Github size={12} /> Репозиторій
+                          </a>
+                        )}
+                        {p.live_url && (
+                          <a href={p.live_url} target="_blank" rel="noreferrer" style={{ color: T.blue, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+                            <ExternalLink size={12} /> Сайт
+                          </a>
+                        )}
+                        {p.tech_stack && <span style={{ color: T.sub, fontFamily: "ui-monospace, monospace" }}>{p.tech_stack}</span>}
+                      </div>
+                      {p.notes && <div style={{ fontSize: 12, color: T.sub, marginTop: 8, whiteSpace: "pre-wrap" }}>{p.notes}</div>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <select
+                        value={p.status}
+                        onChange={(e) => setStatus(p.id, e.target.value)}
+                        style={{ background: "transparent", border: "none", color: st.color, fontWeight: 600, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
+                      >
+                        {Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k} style={{ background: T.panel, color: T.text }}>{v.label}</option>)}
+                      </select>
+                      <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: T.sub, cursor: "pointer" }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+        {items.length === 0 && <div style={{ ...panelStyle, padding: 16, color: T.sub, fontSize: 13 }}>Проєктів ще немає — додайте перший.</div>}
+      </div>
+    </div>
+  );
+}
+
 // ---------------- shared styles ----------------
 const panelStyle = { background: T.panel, border: `1px solid ${T.border}`, borderRadius: 10 };
 const rowStyle = { display: "flex", alignItems: "center", padding: "10px 14px", fontSize: 13.5 };
@@ -496,15 +646,17 @@ function Dashboard({ onLogout }) {
   const [tab, setTab] = useState("daily");
   const [daily, setDaily] = useState([]);
   const [assigned, setAssigned] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
   async function reloadAll() {
     setLoadError(null);
     try {
-      const [dl, asg] = await Promise.all([api.getDaily(), api.getAssigned()]);
+      const [dl, asg, pr] = await Promise.all([api.getDaily(), api.getAssigned(), api.getProjects()]);
       setDaily(dl);
       setAssigned(asg);
+      setProjects(pr);
     } catch (e) {
       setLoadError(e.message || "load_failed");
     } finally {
@@ -542,6 +694,7 @@ function Dashboard({ onLogout }) {
           {tab === "daily" && <DailyTab items={daily} reload={reloadAll} />}
           {tab === "assigned" && <AssignedTab items={assigned} reload={reloadAll} />}
           {tab === "weekly" && <WeeklyTab daily={daily} assigned={assigned} />}
+          {tab === "projects" && <ProjectsTab items={projects} reload={reloadAll} />}
         </>
       )}
     </div>

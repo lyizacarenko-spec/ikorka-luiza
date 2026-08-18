@@ -6,7 +6,9 @@ import {
 } from "lucide-react";
 import { api, setStoredPin, clearStoredPin, getStoredRole, setStoredRole, clearStoredRole } from "./api.js";
 
-const ROLE_LABELS = { owner: "Власниця", evgeniya: "Євгенія (перегляд)" };
+// Both roles get identical, full read/write access to this panel —
+// EVGENIYA_PIN is owner-equivalent here, not a restricted viewer.
+const ROLE_LABELS = { owner: "Власниця", evgeniya: "Євгенія" };
 const SYSADMIN_URL = "https://lyizacarenko-spec.github.io/ikorka-sysadmin/";
 
 // ---------- design tokens (same palette as ikorka-sysadmin) ----------
@@ -139,13 +141,14 @@ function TopBar({ tab, setTab, onLogout, role }) {
   ];
 
   // Same GitHub Pages origin as ikorka-sysadmin, so sessionStorage is
-  // shared across both apps — seed sysadmin's own keys with the PIN we
-  // already know is 'owner' there too, so she lands already logged in.
+  // shared across both apps — seed sysadmin's own keys with the PIN and
+  // role we already have here (both 'owner' and 'evgeniya' are valid,
+  // full-access roles on that backend too), so she lands already logged in.
   function goToSysadmin() {
     const pin = sessionStorage.getItem("ikorka_luiza_pin");
     if (pin) {
       sessionStorage.setItem("ikorka_sysadmin_pin", pin);
-      sessionStorage.setItem("ikorka_sysadmin_role", "owner");
+      sessionStorage.setItem("ikorka_sysadmin_role", role);
     }
     window.location.href = SYSADMIN_URL;
   }
@@ -176,11 +179,9 @@ function TopBar({ tab, setTab, onLogout, role }) {
         })}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        {role === "owner" && (
-          <button onClick={goToSysadmin} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-            <MonitorSmartphone size={14} /> Панель сисадміна →
-          </button>
-        )}
+        <button onClick={goToSysadmin} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+          <MonitorSmartphone size={14} /> Панель сисадміна →
+        </button>
         <span style={{ color: T.sub, fontSize: 12.5 }}>
           Ви увійшли як: <span style={{ color: T.text, fontWeight: 600 }}>{ROLE_LABELS[role] || role}</span>
         </span>
@@ -727,7 +728,8 @@ function btnStyle(color, ghost) {
 }
 
 function Dashboard({ onLogout, role }) {
-  const readOnly = role !== "owner";
+  // owner and evgeniya are both full-access roles here — see ROLE_LABELS.
+  const readOnly = false;
   const [tab, setTab] = useState("daily");
   const [daily, setDaily] = useState([]);
   const [assigned, setAssigned] = useState([]);

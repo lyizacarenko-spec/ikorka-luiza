@@ -312,6 +312,10 @@ function AssignedTab({ items, reload, readOnly }) {
   const [fromUser, setFromUser] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
+  // Draft report text per task — uncontrolled from the DB value until
+  // touched, so re-renders from reload() don't fight typing. Saved on
+  // blur; stays editable regardless of status, including "Завершено".
+  const [reportDrafts, setReportDrafts] = useState({});
 
   async function addTask() {
     if (!title.trim()) return;
@@ -344,6 +348,12 @@ function AssignedTab({ items, reload, readOnly }) {
   async function changeDate(id, field, dateStr) {
     if (!dateStr) return;
     await api.editAssigned(id, { [field]: `${dateStr}T12:00:00` });
+    reload();
+  }
+  async function saveReport(task) {
+    const draft = reportDrafts[task.id];
+    if (draft === undefined || draft === (task.report || "")) return;
+    await api.editAssigned(task.id, { report: draft });
     reload();
   }
 
@@ -448,6 +458,18 @@ function AssignedTab({ items, reload, readOnly }) {
                     </button>
                   )}
                 </div>
+              </div>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                <label style={labelStyle}>Звіт / нотатки</label>
+                <textarea
+                  value={reportDrafts[task.id] !== undefined ? reportDrafts[task.id] : (task.report || "")}
+                  onChange={(e) => setReportDrafts({ ...reportDrafts, [task.id]: e.target.value })}
+                  onBlur={() => saveReport(task)}
+                  disabled={readOnly}
+                  placeholder="Що зроблено, які результати, що потребує уваги..."
+                  rows={2}
+                  style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+                />
               </div>
             </div>
           );
@@ -722,6 +744,7 @@ function ProjectsTab({ items, reload, readOnly }) {
 const panelStyle = { background: T.panel, border: `1px solid ${T.border}`, borderRadius: 10 };
 const rowStyle = { display: "flex", alignItems: "center", padding: "10px 14px", fontSize: 13.5 };
 const inputStyle = { background: T.panelAlt, border: `1px solid ${T.border}`, borderRadius: 7, padding: "8px 10px", color: T.text, fontSize: 13, outline: "none" };
+const labelStyle = { display: "block", fontSize: 11, color: T.sub, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 };
 function btnStyle(color, ghost) {
   return {
     display: "inline-flex", alignItems: "center", gap: 6,

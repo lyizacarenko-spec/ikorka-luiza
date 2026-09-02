@@ -8,10 +8,10 @@ task-dashboard і ikorka-sysadmin, але окремі таблиці:
 `luiza_daily_tasks`, `luiza_assigned_tasks`.
 
 ## Доступ
-`owner` (`OWNER_PIN`) — повний доступ. `evgeniya` (`EVGENIYA_PIN`) —
-read-only: GET-роути `/api/luiza/*` відкриті для обох ролей,
-POST/PATCH/DELETE — тільки `owner`. Жоден інший PIN (sysadmin/manager)
-сюди не потрапить.
+`owner` (`OWNER_PIN`) і `evgeniya` (`EVGENIYA_PIN`) — обидва мають
+повний read/write доступ, ролі рівнозначні (це змінилось з початкового
+read-only рішення — тепер `evgeniya` теж ставить задачі й редагує все).
+Жоден інший PIN (sysadmin/manager) сюди не потрапить.
 
 ## Перехід на ikorka-sysadmin
 Кнопка в шапці (тільки для `owner`) записує PIN у sessionStorage під

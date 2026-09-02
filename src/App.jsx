@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Pencil, Clock, Play, Check, X, ListChecks, CalendarClock,
   TrendingUp, ChevronRight, ChevronLeft, CircleDot, Lock, LogOut,
-  FolderGit2, ExternalLink, Github, MonitorSmartphone,
+  FolderGit2, ExternalLink, Github, MonitorSmartphone, ImagePlus,
 } from "lucide-react";
 import { api, setStoredPin, clearStoredPin, getStoredRole, setStoredRole, clearStoredRole } from "./api.js";
 
@@ -307,6 +307,50 @@ function LiveElapsed({ startedAt }) {
   return <span style={{ fontFamily: "ui-monospace, monospace", color: T.amber, fontWeight: 700 }}>{h}:{m}:{s}</span>;
 }
 
+// Resizes+recompresses to JPEG client-side before it ever becomes a
+// base64 string bound for the DB — a raw phone screenshot can be several
+// MB, which is both slow to upload and wasteful to store as text.
+function compressImage(file, maxDim = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function Lightbox({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", padding: 24,
+      }}
+    >
+      <img src={src} style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
+    </div>
+  );
+}
+
 function AssignedTab({ items, reload, readOnly }) {
   const [title, setTitle] = useState("");
   const [fromUser, setFromUser] = useState("");
@@ -316,6 +360,9 @@ function AssignedTab({ items, reload, readOnly }) {
   // touched, so re-renders from reload() don't fight typing. Saved on
   // blur; stays editable regardless of status, including "Завершено".
   const [reportDrafts, setReportDrafts] = useState({});
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const fileInputRef = useRef(null);
+  const [uploadTaskId, setUploadTaskId] = useState(null);
 
   async function addTask() {
     if (!title.trim()) return;
@@ -355,6 +402,28 @@ function AssignedTab({ items, reload, readOnly }) {
     if (draft === undefined || draft === (task.report || "")) return;
     await api.editAssigned(task.id, { report: draft });
     reload();
+  }
+  async function addImagesToTask(task, files) {
+    const list = Array.from(files || []).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    const compressed = await Promise.all(list.map((f) => compressImage(f)));
+    const next = [...(task.report_images || []), ...compressed];
+    await api.editAssigned(task.id, { report_images: next });
+    reload();
+  }
+  async function removeImage(task, idx) {
+    const next = (task.report_images || []).filter((_, i) => i !== idx);
+    await api.editAssigned(task.id, { report_images: next });
+    reload();
+  }
+  function handlePaste(task, e) {
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile());
+    if (files.length) {
+      e.preventDefault();
+      addImagesToTask(task, files);
+    }
   }
 
   const statusMeta = {
@@ -460,22 +529,73 @@ function AssignedTab({ items, reload, readOnly }) {
                 </div>
               </div>
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                <label style={labelStyle}>Звіт / нотатки</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={labelStyle}>Звіт / нотатки</label>
+                  {!readOnly && (
+                    <button
+                      onClick={() => { setUploadTaskId(task.id); fileInputRef.current?.click(); }}
+                      style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}
+                      title="Додати фото"
+                    >
+                      <ImagePlus size={13} /> Додати фото
+                    </button>
+                  )}
+                </div>
                 <textarea
                   value={reportDrafts[task.id] !== undefined ? reportDrafts[task.id] : (task.report || "")}
                   onChange={(e) => setReportDrafts({ ...reportDrafts, [task.id]: e.target.value })}
                   onBlur={() => saveReport(task)}
+                  onPaste={(e) => !readOnly && handlePaste(task, e)}
                   disabled={readOnly}
-                  placeholder="Що зроблено, які результати, що потребує уваги..."
+                  placeholder="Що зроблено, які результати, що потребує уваги... (можна вставити скріншот — Ctrl+V)"
                   rows={2}
                   style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
                 />
+                {task.report_images?.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    {task.report_images.map((src, idx) => (
+                      <div key={idx} style={{ position: "relative" }}>
+                        <img
+                          src={src}
+                          onClick={() => setLightboxSrc(src)}
+                          style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "zoom-in" }}
+                        />
+                        {!readOnly && (
+                          <button
+                            onClick={() => removeImage(task, idx)}
+                            title="Видалити фото"
+                            style={{
+                              position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%",
+                              background: T.red, border: "none", color: "#fff", cursor: "pointer",
+                              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                            }}
+                          >
+                            <X size={11} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
         {items.length === 0 && <div style={{ ...panelStyle, padding: 16, color: T.sub, fontSize: 13 }}>Задач ще немає.</div>}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const task = items.find((t) => t.id === uploadTaskId);
+          if (task) addImagesToTask(task, e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </div>
   );
 }

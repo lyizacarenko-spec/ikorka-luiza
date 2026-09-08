@@ -3,8 +3,9 @@ import {
   Plus, Trash2, Pencil, Clock, Play, Check, X, ListChecks, CalendarClock,
   TrendingUp, ChevronRight, ChevronLeft, CircleDot, Lock, LogOut,
   FolderGit2, ExternalLink, Github, MonitorSmartphone, ImagePlus,
+  Paperclip, FileText, Download,
 } from "lucide-react";
-import { api, setStoredPin, clearStoredPin, getStoredRole, setStoredRole, clearStoredRole } from "./api.js";
+import { api, attachmentHref, setStoredPin, clearStoredPin, getStoredRole, setStoredRole, clearStoredRole } from "./api.js";
 
 // Both roles get identical, full read/write access to this panel —
 // EVGENIYA_PIN is owner-equivalent here, not a restricted viewer.
@@ -363,6 +364,9 @@ function AssignedTab({ items, reload, readOnly }) {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const fileInputRef = useRef(null);
   const [uploadTaskId, setUploadTaskId] = useState(null);
+  const attachInputRef = useRef(null);
+  const [attachTaskId, setAttachTaskId] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   async function addTask() {
     if (!title.trim()) return;
@@ -424,6 +428,24 @@ function AssignedTab({ items, reload, readOnly }) {
       e.preventDefault();
       addImagesToTask(task, files);
     }
+  }
+  async function addFilesToTask(task, files) {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    setUploading(true);
+    try {
+      const uploaded = await Promise.all(list.map((f) => api.uploadFile(f)));
+      const next = [...(task.attachments || []), ...uploaded];
+      await api.editAssigned(task.id, { attachments: next });
+      reload();
+    } finally {
+      setUploading(false);
+    }
+  }
+  async function removeAttachment(task, idx) {
+    const next = (task.attachments || []).filter((_, i) => i !== idx);
+    await api.editAssigned(task.id, { attachments: next });
+    reload();
   }
 
   const statusMeta = {
@@ -532,13 +554,23 @@ function AssignedTab({ items, reload, readOnly }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <label style={labelStyle}>Звіт / нотатки</label>
                   {!readOnly && (
-                    <button
-                      onClick={() => { setUploadTaskId(task.id); fileInputRef.current?.click(); }}
-                      style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}
-                      title="Додати фото"
-                    >
-                      <ImagePlus size={13} /> Додати фото
-                    </button>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <button
+                        onClick={() => { setUploadTaskId(task.id); fileInputRef.current?.click(); }}
+                        style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}
+                        title="Додати фото"
+                      >
+                        <ImagePlus size={13} /> Додати фото
+                      </button>
+                      <button
+                        onClick={() => { setAttachTaskId(task.id); attachInputRef.current?.click(); }}
+                        disabled={uploading}
+                        style={{ background: "none", border: "none", color: T.sub, cursor: uploading ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}
+                        title="Прикріпити файл"
+                      >
+                        <Paperclip size={13} /> {uploading && attachTaskId === task.id ? "Завантаження…" : "Прикріпити файл"}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <textarea
@@ -577,6 +609,32 @@ function AssignedTab({ items, reload, readOnly }) {
                     ))}
                   </div>
                 )}
+                {task.attachments?.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                    {task.attachments.map((att, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                        <FileText size={13} style={{ color: T.sub, flexShrink: 0 }} />
+                        <a
+                          href={attachmentHref(att)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: T.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                        >
+                          {att.name} <Download size={11} />
+                        </a>
+                        {!readOnly && (
+                          <button
+                            onClick={() => removeAttachment(task, idx)}
+                            title="Видалити файл"
+                            style={{ background: "none", border: "none", color: T.sub, cursor: "pointer", display: "inline-flex", padding: 0 }}
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -592,6 +650,17 @@ function AssignedTab({ items, reload, readOnly }) {
         onChange={(e) => {
           const task = items.find((t) => t.id === uploadTaskId);
           if (task) addImagesToTask(task, e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={attachInputRef}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const task = items.find((t) => t.id === attachTaskId);
+          if (task) addFilesToTask(task, e.target.files);
           e.target.value = "";
         }}
       />

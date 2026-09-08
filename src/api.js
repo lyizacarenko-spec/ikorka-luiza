@@ -63,12 +63,38 @@ export const api = {
     request(`/luiza/assigned-tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteAssigned: (id) => request(`/luiza/assigned-tasks/${id}`, { method: "DELETE" }),
 
+  // Arbitrary files (docs/pdf/xlsx/etc) — stored on disk (Railway Volume),
+  // not base64-in-Postgres like report_images. Multipart, so it bypasses
+  // the JSON `request()` helper (browser sets its own Content-Type with
+  // the multipart boundary).
+  uploadFile: async (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: "POST",
+      headers: { "x-pin": pin() },
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `upload_failed_${res.status}`);
+    }
+    return res.json(); // { url, name, size }
+  },
+
   getProjects: () => request("/luiza/projects"),
   addProject: (project) => request("/luiza/projects", { method: "POST", body: JSON.stringify(project) }),
   updateProject: (id, patch) =>
     request(`/luiza/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteProject: (id) => request(`/luiza/projects/${id}`, { method: "DELETE" }),
 };
+
+// /api/uploads/:filename is not behind the JSON `request()` wrapper (it
+// returns the raw file, opened via <a href>, not fetched) — auth is a
+// ?pin= query param instead of the x-pin header. See server.js comment.
+export function attachmentHref(attachment) {
+  return `${API_BASE}${attachment.url}?pin=${encodeURIComponent(pin())}&name=${encodeURIComponent(attachment.name)}`;
+}
 
 export function setStoredPin(p) {
   sessionStorage.setItem("ikorka_luiza_pin", p);

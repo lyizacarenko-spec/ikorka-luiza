@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  Plus, Trash2, Pencil, Clock, Play, Check, X, ListChecks, CalendarClock,
+  Plus, Trash2, Pencil, Clock, Play, Pause, Check, X, ListChecks, CalendarClock,
   TrendingUp, ChevronRight, ChevronLeft, CircleDot, Lock, LogOut,
   FolderGit2, ExternalLink, Github, MonitorSmartphone, ImagePlus,
   Paperclip, FileText, Download,
@@ -38,6 +38,19 @@ function fmtDuration(startIso, endIso) {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return h > 0 ? `${h} год ${m} хв` : `${m} хв`;
+}
+function fmtSeconds(totalSeconds) {
+  if (!totalSeconds) return null;
+  const mins = Math.round(totalSeconds / 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h} год ${m} хв` : `${m} хв`;
+}
+// A task finished before pause/resume existed has accumulated_seconds=0
+// but real started_at/finished_at — fall back to the old diff so its
+// history still shows a duration instead of "—".
+function workedDuration(task) {
+  return fmtSeconds(task.accumulated_seconds) || fmtDuration(task.started_at, task.finished_at);
 }
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -299,9 +312,12 @@ function DailyTab({ items, reload, readOnly }) {
 }
 
 // ---------------- Assigned tasks tab (time-tracked) ----------------
-function LiveElapsed({ startedAt }) {
+// Total elapsed = time already banked from past sessions (accumulated_seconds)
+// plus time-since-session_started_at for the session running right now —
+// so a pause/resume doesn't reset the visible counter to zero.
+function LiveElapsed({ sessionStartedAt, accumulatedSeconds }) {
   useTicker(true);
-  const secs = Math.floor((Date.now() - new Date(startedAt)) / 1000);
+  const secs = (accumulatedSeconds || 0) + Math.floor((Date.now() - new Date(sessionStartedAt)) / 1000);
   const h = String(Math.floor(secs / 3600)).padStart(2, "0");
   const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
   const s = String(secs % 60).padStart(2, "0");
@@ -378,6 +394,14 @@ function AssignedTab({ items, reload, readOnly }) {
     await api.setAssignedStatus(id, "active");
     reload();
   }
+  async function pause(id) {
+    await api.setAssignedStatus(id, "paused");
+    reload();
+  }
+  async function resume(id) {
+    await api.setAssignedStatus(id, "active");
+    reload();
+  }
   async function finish(id) {
     await api.setAssignedStatus(id, "done");
     reload();
@@ -451,6 +475,7 @@ function AssignedTab({ items, reload, readOnly }) {
   const statusMeta = {
     queued: { label: "Не почато", color: T.sub },
     active: { label: "В роботі", color: T.amber },
+    paused: { label: "Призупинено", color: T.sub },
     done: { label: "Завершено", color: T.accent },
   };
 
@@ -479,7 +504,7 @@ function AssignedTab({ items, reload, readOnly }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {items.map((task) => {
           const meta = statusMeta[task.status];
-          const dur = fmtDuration(task.started_at, task.finished_at);
+          const dur = task.status === "done" ? workedDuration(task) : null;
           return (
             <div key={task.id} style={{ ...panelStyle, padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -532,7 +557,15 @@ function AssignedTab({ items, reload, readOnly }) {
                       </span>
                     )}
                     {dur && <span style={{ color: T.text, fontWeight: 600 }}><Clock size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{dur}</span>}
-                    {task.status === "active" && <LiveElapsed startedAt={task.started_at} />}
+                    {task.status === "active" && (
+                      <LiveElapsed sessionStartedAt={task.session_started_at} accumulatedSeconds={task.accumulated_seconds} />
+                    )}
+                    {task.status === "paused" && (
+                      <span style={{ color: T.text, fontWeight: 600 }}>
+                        <Clock size={11} style={{ verticalAlign: -1, marginRight: 3 }} />
+                        Відпрацьовано: {fmtSeconds(task.accumulated_seconds) || "0 хв"} (на паузі)
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -541,6 +574,12 @@ function AssignedTab({ items, reload, readOnly }) {
                     <button onClick={() => start(task.id)} style={btnStyle(T.blue)}><Play size={13} /> Взяти в роботу</button>
                   )}
                   {!readOnly && task.status === "active" && (
+                    <button onClick={() => pause(task.id)} style={btnStyle(T.amber)}><Pause size={13} /> Призупинити</button>
+                  )}
+                  {!readOnly && task.status === "paused" && (
+                    <button onClick={() => resume(task.id)} style={btnStyle(T.blue)}><Play size={13} /> Відновити</button>
+                  )}
+                  {!readOnly && (task.status === "active" || task.status === "paused") && (
                     <button onClick={() => finish(task.id)} style={btnStyle(T.accent)}><Check size={13} /> Завершити</button>
                   )}
                   {!readOnly && (
@@ -720,7 +759,7 @@ function WeeklyTab({ daily, assigned }) {
                 {d.assignedDone.map((t) => (
                   <div key={"a" + t.id} style={{ fontSize: 11.5, display: "flex", gap: 5, alignItems: "flex-start" }}>
                     <Check size={11} color={T.accent} style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span>{t.title} <span style={{ color: T.sub }}>({fmtDuration(t.started_at, t.finished_at)})</span></span>
+                    <span>{t.title} <span style={{ color: T.sub }}>({workedDuration(t)})</span></span>
                   </div>
                 ))}
                 {d.dailyDone.map((t) => (

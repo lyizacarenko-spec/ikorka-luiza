@@ -302,11 +302,18 @@ function DailyTab({ items, reload, readOnly }) {
     reload();
   }
   const doneCount = items.filter((i) => i.done).length;
-  // Unfinished on top, done at the bottom — recomputed from `items` on
+  // Unfinished on top, done at the bottom (newest completed first) — recomputed from `items` on
   // every render, so toggling a checkbox (which triggers reload()) moves
   // it immediately without any extra state to keep in sync. Pagination
   // slices AFTER this sort, so it never disturbs the ordering.
-  const sortedItems = [...items].sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1));
+  const sortedItems = [...items].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (!a.done) return 0;
+    // Done tasks: newest completion date first, oldest at the very bottom.
+    const ta = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+    const tb = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+    return tb - ta;
+  });
   const { page, setPage, totalPages, pageItems } = usePagedList(sortedItems, "ikorka_luiza_daily_page");
   return (
     <div style={{ padding: 20, maxWidth: 640 }}>
